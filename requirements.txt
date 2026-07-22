@@ -1,0 +1,6 @@
+fastmcp
+pandas
+openpyxl
+playwright
+python-dotenv
+rapidfuzz

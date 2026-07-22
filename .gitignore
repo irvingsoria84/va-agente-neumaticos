@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos Virtuales (por si acaso usan uno)
+venv/
+env/
+.venv/
+
+# Variables de Entorno / Credenciales
+.env
+
+# Archivos de datos generados y sesiones
+data/
+*.json
+!mcp_settings.json
+last_image.txt
+last_ficha.txt
+
+# (Opcional) Ignorar los Excel de stock si los van a actualizar localmente muy seguido
+# Si quieres que el Excel suba al repositorio para que ellos lo tengan, borra la linea de abajo:
+# *.xlsx

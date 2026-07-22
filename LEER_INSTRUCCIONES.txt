@@ -1,0 +1,23 @@
+GUIA RAPIDA DE INSTALACION Y USO
+================================
+
+Para usar este Agente de Neumaticos en cualquier computadora Windows, sigue estos pasos:
+
+PASO 1: INSTALAR LAS DEPENDENCIAS
+1. Asegurate de que la computadora tenga instalado "Python" (puedes descargarlo desde python.org).
+2. Haz doble clic en el archivo llamado "Instalar_Dependencias.bat".
+3. Se abrira una ventana negra. Espera a que termine de descargar e instalar todo (puede tardar unos minutos porque descarga un navegador interno). 
+4. Cuando te diga "INSTALACION COMPLETADA CON EXITO", presiona cualquier tecla para cerrar la ventana.
+
+PASO 2: CONECTAR CON ANTIGRAVITY
+1. Abre tu aplicacion Antigravity.
+2. Ve a las configuraciones (Settings o Ajustes).
+3. Busca la seccion "MCP Servers".
+4. Agrega un nuevo servidor (o edita el actual si ya tenias uno de prueba).
+5. En la ruta (Path), debes colocar la ruta exacta hacia el archivo "mcp_server.py" que esta dentro de esta carpeta.
+   Ejemplo: C:\Users\NombreUsuario\Descargas\VA agente neumaticos\mcp_server.py
+
+¡Listo! Reinicia Antigravity y el Agente experto en neumaticos estara listo para trabajar.
+
+NOTA SOBRE CREDENCIALES:
+Asegurate de que el archivo ".env" este dentro de esta misma carpeta. Este archivo contiene la contrasena de Neumachile y esta oculto por seguridad. Si no lo ves, asegurate de tener activada la opcion de "Mostrar archivos ocultos" en Windows.
