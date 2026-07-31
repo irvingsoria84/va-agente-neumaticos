@@ -2,6 +2,9 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 
+# Asegurar que el navegador este instalado (Para Hugging Face Spaces)
+os.system("playwright install chromium")
+
 # Cargar variables de entorno
 load_dotenv()
 
