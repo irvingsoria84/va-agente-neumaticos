@@ -109,46 +109,79 @@ def buscar_precios_competencia(query: str) -> str:
         except RuntimeError:
             loop = None
         
+        resultados = []
         if loop and loop.is_running():
-            # Si ya hay un event loop (ej: Streamlit puede correr en uno), usamos una tarea sincrona wrapper o asyncio.run no funcionara.
             import threading
-            resultados = []
+            error_holder = [None]
             def run_in_thread():
                 nonlocal resultados
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
-                resultados = new_loop.run_until_complete(_buscar_precios_async(query))
-                new_loop.close()
+                try:
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    resultados = new_loop.run_until_complete(_buscar_precios_async(query))
+                    new_loop.close()
+                except Exception as e:
+                    error_holder[0] = e
             t = threading.Thread(target=run_in_thread)
             t.start()
-            t.join()
+            t.join(timeout=120)  # Máximo 2 minutos
+            if t.is_alive():
+                return "⚠️ La búsqueda de competencia tardó demasiado (timeout 120s)."
+            if error_holder[0]:
+                return f"⚠️ Error en búsqueda de competencia: {error_holder[0]}"
         else:
             resultados = asyncio.run(_buscar_precios_async(query))
             
         return formatear_tabla_competencia(resultados, query=query)
     except Exception as e:
-        return f"Error: {str(e)}"
+        import traceback
+        return f"⚠️ Error buscando competencia: {str(e)}\n```\n{traceback.format_exc()}\n```"
 
 def solicitar_ficha_neumatico(nombre_producto: str = "") -> str:
     """
     Devuelve la imagen del neumatico desde la extraccion web mas reciente.
-    CRITICO: Debes pasar el nombre COMPLETO del producto.
-    Usalo SOLO si el usuario pide explicitamente ver una imagen o especificaciones.
+    Convierte imagenes locales a base64 para que funcionen en navegadores web.
     """
+    import base64
     respuesta = []
     
-    archivo_img = config.SESSION_FILE.parent / "last_image.txt"
+    archivo_img_txt = config.SESSION_FILE.parent / "last_image.txt"
+    archivo_img_jpg = config.SESSION_FILE.parent / "last_image.jpg"
     archivo_ficha = config.SESSION_FILE.parent / "last_ficha.txt"
 
-    if archivo_img.exists():
-        url = archivo_img.read_text(encoding="utf-8").strip()
-        if url:
-            img_src = url if url.startswith("http") else f"file:///{url}"
+    # Intentar primero el screenshot JPG directo (guardado por Playwright)
+    img_shown = False
+    if archivo_img_jpg.exists() and archivo_img_jpg.stat().st_size > 0:
+        try:
+            with open(archivo_img_jpg, "rb") as f:
+                img_data = base64.b64encode(f.read()).decode("utf-8")
             respuesta.append(
-                f"Aqui tienes la imagen referencial obtenida de la web:\n\n"
-                f"![Imagen de Neumatico]({img_src})\n"
-                f"*(URL directa: {img_src})*"
+                f"**📸 Imagen del neumático:**\n\n"
+                f"![Imagen de Neumatico](data:image/jpeg;base64,{img_data})"
             )
+            img_shown = True
+        except Exception:
+            pass
+    
+    # Si no hay JPG, intentar con la URL guardada en el TXT
+    if not img_shown and archivo_img_txt.exists():
+        url = archivo_img_txt.read_text(encoding="utf-8").strip()
+        if url:
+            if url.startswith("http"):
+                respuesta.append(
+                    f"**📸 Imagen del neumático:**\n\n"
+                    f"![Imagen de Neumatico]({url})"
+                )
+            elif Path(url).exists():
+                try:
+                    with open(url, "rb") as f:
+                        img_data = base64.b64encode(f.read()).decode("utf-8")
+                    respuesta.append(
+                        f"**📸 Imagen del neumático:**\n\n"
+                        f"![Imagen de Neumatico](data:image/jpeg;base64,{img_data})"
+                    )
+                except Exception:
+                    pass
 
     if archivo_ficha.exists():
         ficha = archivo_ficha.read_text(encoding="utf-8").strip()
@@ -158,7 +191,7 @@ def solicitar_ficha_neumatico(nombre_producto: str = "") -> str:
     if respuesta:
         return "\n\n".join(respuesta)
 
-    return f"No hay imagen disponible para '{nombre_producto}'."
+    return f"📷 Imagen no disponible para '{nombre_producto}'."
 
 def cotizar_y_analizar(query: str, margen_pct: float) -> str:
     """
