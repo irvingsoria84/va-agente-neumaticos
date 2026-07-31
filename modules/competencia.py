@@ -370,6 +370,11 @@ async def _buscar_precios_async(query: str) -> list[dict]:
         )
         
         # Contexto privado para Neumachile (usando sesión guardada si existe)
+        if not SESSION_FILE.exists():
+            print("[*] Sesión no encontrada. Iniciando login automático en Neumachile...")
+            from modules.auth_neumachile import login
+            await login()
+            
         if SESSION_FILE.exists():
             context_private = await browser.new_context(
                 storage_state=str(SESSION_FILE),
