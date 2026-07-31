@@ -183,7 +183,7 @@ def cotizar_y_analizar(query: str, margen_pct: float) -> str:
         
         # 2. Calcular
         precio_excel = p.get("precios_listas", {}).get(margen_pct)
-        calc = _calcular(precio_base, margen_pct, 1, 0.0, precio_excel)
+        calc = _calcular(precio_base, margen_pct, 1, 0.0, precio_excel=precio_excel)
         tabla_cotizacion = formatear_tabla_cotizacion(calc, p['descripcion'], codigo, p['stock'], p['marca'])
         
         # 3. Competencia
@@ -254,52 +254,31 @@ class GroqChatSession:
         # Paso 2: Si es consulta de neumático, ejecutar herramienta DIRECTAMENTE
         if query:
             datos_reales = cotizar_y_analizar(query=query, margen_pct=margen)
+            # Devolver los datos directamente — ya están formateados por Python
+            self.historial.append({"role": "user", "content": prompt})
+            self.historial.append({"role": "assistant", "content": datos_reales})
+            class DummyResponse:
+                def __init__(self, text):
+                    self.text = text
+            return DummyResponse(datos_reales)
         else:
-            datos_reales = None
-
-        # Paso 3: Pasar datos a Llama SOLO para formatear
-        system_msg = (
-            "Eres el asistente de ventas de Avantti, experto en neumáticos pesados.\n\n"
-            "REGLAS:\n"
-            "- Usa ÚNICAMENTE los datos que te proporciona el sistema. NUNCA inventes precios, stock ni datos.\n"
-            "- Formatea la respuesta como mensaje de WhatsApp: claro, persuasivo y profesional.\n"
-            "- Si la foto/imagen no está disponible, simplemente no la menciones.\n"
-            "- Si el stock es menor a 10, advierte con ⚠️.\n"
-            "- No des explicaciones técnicas ni pidas disculpas. Eres un vendedor humano.\n"
-            "- Incluye siempre un cierre de venta amigable."
-        )
-
-        if datos_reales:
-            user_content = (
-                f"El cliente preguntó: \"{prompt}\"\n\n"
-                f"DATOS REALES DEL SISTEMA (usa SOLO estos):\n\n{datos_reales}\n\n"
-                "Redacta el mensaje de WhatsApp con estos datos."
+            # Solo para mensajes conversacionales (saludos, etc.) usar Llama
+            response = self.client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "Eres el asistente de ventas de Avantti, experto en neumáticos pesados. Responde de forma amigable y breve."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.5,
+                max_tokens=300,
             )
-        else:
-            user_content = (
-                f"El cliente dijo: \"{prompt}\"\n\n"
-                "No es una consulta de neumáticos. Responde de forma amigable y breve como vendedor de Avantti."
-            )
-
-        response = self.client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_msg},
-                *self.historial[-6:],  # Últimos 3 intercambios para contexto
-                {"role": "user", "content": user_content}
-            ],
-            temperature=0.3,
-            max_tokens=1500,
-        )
-
-        final_text = response.choices[0].message.content
-        self.historial.append({"role": "user", "content": prompt})
-        self.historial.append({"role": "assistant", "content": final_text})
-
-        class DummyResponse:
-            def __init__(self, text):
-                self.text = text
-        return DummyResponse(final_text)
+            final_text = response.choices[0].message.content
+            self.historial.append({"role": "user", "content": prompt})
+            self.historial.append({"role": "assistant", "content": final_text})
+            class DummyResponse:
+                def __init__(self, text):
+                    self.text = text
+            return DummyResponse(final_text)
 
 def get_chat_session():
     """Inicializa la sesión de chat con Groq."""
