@@ -160,7 +160,8 @@ async def buscar_precios_competencia(query: str) -> str:
 def solicitar_ficha_neumatico(nombre_producto: str = "") -> str:
     """
     Devuelve la imagen del neumatico desde el catalogo local de Avantti Solutions.
-    Pasa el nombre completo del producto como argumento (ej: '295/80 R22.5 TRANS MASTER ESL220').
+    CRITICO: Debes pasar el nombre COMPLETO del producto incluyendo sus MEDIDAS y numero de capas (PR). 
+    Ejemplo correcto: '10.00 R20 16PR LL-D09'. Ejemplo incorrecto: 'LL-D09'.
     Usalo SOLO si el usuario pide explicitamente ver una imagen o especificaciones.
     """
     import urllib.parse

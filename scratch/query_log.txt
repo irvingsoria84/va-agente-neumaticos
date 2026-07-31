@@ -1,1 +1,5 @@
 QUERY: '10.00 R20 16PR LL-D09' -> TOKENS: {'00', '10', 'r20', '16pr'}
+QUERY: '10.00 R20 16PR LL-D09' -> TOKENS: {'16pr', 'r20', '00', '10'}
+QUERY: '10.00 R20 16PR LL-D09' -> TOKENS: {'r20', '16pr', '10', '00'}
+QUERY: '10.00 R20 16PR LL-D09' -> TOKENS: {'r20', '16pr', '10', '00'}
+QUERY: 'LL-D09' -> TOKENS: set()

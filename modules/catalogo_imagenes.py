@@ -96,6 +96,14 @@ def buscar_imagen_local(query: str) -> Optional[str]:
         pass
         
     if not q_tokens:
+        # Fallback: si no hay tokens clave (como medidas o PR), hacer busqueda de texto simple
+        query_norm = _normalizar(query)
+        if len(query_norm) > 2:
+            for key, entry in indice.items():
+                if query_norm in key or key in query_norm:
+                    path = Path(entry["imagen"])
+                    if path.exists():
+                        return str(path.resolve())
         return None
 
     best_score = 0.0
