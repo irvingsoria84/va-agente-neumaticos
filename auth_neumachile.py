@@ -32,25 +32,23 @@ async def login():
             await page.goto("https://premium.neumachile.cl/", timeout=30000)
             
             print("[*] Llenando credenciales...")
-            # Detectar selectores del portal premium
-            if await page.locator("#email").count() > 0:
-                await page.fill("#email", NEUMACHILE_USER)
+            try:
+                await page.wait_for_selector("#email", timeout=15000)
                 await page.fill("#email", NEUMACHILE_USER)
                 await page.wait_for_timeout(500)
                 await page.fill("#pass", NEUMACHILE_PASS)
                 await page.wait_for_timeout(500)
                 await page.click("#btn-login")
-                
-                # Esperar a que la URL cambie, significa que el login fue exitoso
-                try:
-                    await page.wait_for_url("**/pedidos**", timeout=15000)
-                    print("[*] Login exitoso, redirigido al dashboard.")
-                except Exception as e:
-                    print("[!] No se redirigió al dashboard, posible error de credenciales o timeout.")
-                    await page.screenshot(path="scratch/login_error.png")
-            else:
-                print("No se encontraron los campos de login estándar.")
-                await page.pause()
+            except Exception as e:
+                print(f"No se encontraron los campos de login estándar: {e}")
+
+            # Esperar a que la URL cambie, significa que el login fue exitoso
+            try:
+                await page.wait_for_url("**/*", timeout=15000)
+                print("[*] Login exitoso, cambio de URL detectado.")
+            except Exception as e:
+                print("[!] No se detectó cambio de URL rápido, revisando estado...")
+                await page.screenshot(path="login_error.png")
 
             # Esperar a que la página cargue tras el login
             await page.wait_for_load_state("networkidle")
