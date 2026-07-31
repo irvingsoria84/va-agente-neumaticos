@@ -247,10 +247,10 @@ REGLAS ABSOLUTAS:
         self.messages.append({"role": "user", "content": prompt})
         
         response = self.client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=self.messages,
             tools=self.tools,
-            tool_choice="required",
+            tool_choice="auto",
         )
         
         response_message = response.choices[0].message
@@ -278,7 +278,7 @@ REGLAS ABSOLUTAS:
                     })
             
             second_response = self.client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="llama-3.3-70b-versatile",
                 messages=self.messages,
             )
             final_text = second_response.choices[0].message.content
