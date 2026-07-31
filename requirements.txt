@@ -5,4 +5,4 @@ playwright
 python-dotenv
 rapidfuzz
 streamlit
-google-generativeai
+groq

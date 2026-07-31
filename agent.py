@@ -7,7 +7,7 @@ import config
 from modules.buscador import buscar_producto as _buscar, info_catalogo
 from modules.calculadora import calcular_cotizacion as _calcular, formatear_tabla_cotizacion
 from modules.competencia import _buscar_precios_async, formatear_tabla_competencia
-import google.generativeai as genai
+from groq import Groq
 import os
 
 # ----------------- Funciones de Herramientas -----------------
@@ -202,28 +202,103 @@ def cotizar_y_analizar(query: str, margen_pct: float) -> str:
 
 # ----------------- Configuracion del Agente -----------------
 
-def get_chat_session():
-    """Inicializa la sesión de chat con el modelo y herramientas."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("No se encontró la variable de entorno GEMINI_API_KEY")
-        
-    genai.configure(api_key=api_key)
-    
-    instrucciones = """
+import json
+
+class GroqChatSession:
+    def __init__(self):
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("No se encontró la variable de entorno GROQ_API_KEY")
+        self.client = Groq(api_key=api_key)
+        self.instrucciones = """
 Eres el asistente de ventas experto en NEUMÁTICOS PESADOS de Avantti. Tu única función es ayudar al dueño de la distribuidora a responder consultas de clientes en WhatsApp con rapidez y precisión.
 
 REGLAS ABSOLUTAS:
-1. Ante cualquier consulta, ejecuta la herramienta `cotizar_y_analizar(query, margen_pct)`. Si el usuario no dio margen, asume 20%.
+1. Ante cualquier consulta, ejecuta la herramienta `cotizar_y_analizar`. Si el usuario no dio margen, asume 20.
 2. La herramienta te devolverá TODOS los datos (cálculo, stock, competencia y foto).
 3. Tu trabajo es simplemente leer esos datos y redactarlos en un mensaje persuasivo y claro de WhatsApp, listo para copiar y pegar.
 4. Si el stock es menor a 10 unidades, usa el emoji ⚠️.
 """
+        self.messages = [
+            {"role": "system", "content": self.instrucciones}
+        ]
+        self.tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "cotizar_y_analizar",
+                    "description": "Busca un neumático, calcula el precio final, busca precios de competencia y extrae la foto oficial.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "El modelo o medida del neumático buscado."
+                            },
+                            "margen_pct": {
+                                "type": "number",
+                                "description": "El porcentaje de margen de ganancia (ej. 15 para 15%)."
+                            }
+                        },
+                        "required": ["query", "margen_pct"]
+                    }
+                }
+            }
+        ]
 
-    model = genai.GenerativeModel(
-        model_name="gemini-flash-latest",
-        tools=[cotizar_y_analizar],
-        system_instruction=instrucciones
-    )
-    
-    return model.start_chat(enable_automatic_function_calling=True)
+    def send_message(self, prompt: str):
+        self.messages.append({"role": "user", "content": prompt})
+        
+        response = self.client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=self.messages,
+            tools=self.tools,
+            tool_choice="auto",
+        )
+        
+        response_message = response.choices[0].message
+        tool_calls = response_message.tool_calls
+        
+        if tool_calls:
+            self.messages.append(response_message)
+            for tool_call in tool_calls:
+                function_name = tool_call.function.name
+                try:
+                    function_args = json.loads(tool_call.function.arguments)
+                except:
+                    function_args = {"query": prompt, "margen_pct": 20}
+                
+                if function_name == "cotizar_y_analizar":
+                    function_response = cotizar_y_analizar(
+                        query=function_args.get("query", prompt),
+                        margen_pct=function_args.get("margen_pct", 20)
+                    )
+                    self.messages.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": function_name,
+                        "content": function_response,
+                    })
+            
+            second_response = self.client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=self.messages,
+            )
+            final_text = second_response.choices[0].message.content
+            self.messages.append({"role": "assistant", "content": final_text})
+            
+            class DummyResponse:
+                def __init__(self, text):
+                    self.text = text
+            return DummyResponse(final_text)
+        else:
+            final_text = response_message.content
+            self.messages.append({"role": "assistant", "content": final_text})
+            class DummyResponse:
+                def __init__(self, text):
+                    self.text = text
+            return DummyResponse(final_text)
+
+def get_chat_session():
+    """Inicializa la sesión de chat con el modelo y herramientas de Groq."""
+    return GroqChatSession()

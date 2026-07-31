@@ -55,7 +55,7 @@ if "chat_session" not in st.session_state:
         # Mensaje de bienvenida
         st.session_state.messages.append({"role": "assistant", "content": "¡Hola! Soy tu asistente de ventas de Avantti. Dime qué neumático estás buscando y te daré stock, precios y cotizaciones listas para WhatsApp."})
     except Exception as e:
-        st.error(f"Error al inicializar el asistente: {e}\nPor favor, verifica que la variable GEMINI_API_KEY esté configurada.")
+        st.error(f"Error al inicializar el asistente: {e}\nPor favor, verifica que la variable GROQ_API_KEY esté configurada.")
 
 # Mostrar historial de mensajes
 if "messages" in st.session_state:
