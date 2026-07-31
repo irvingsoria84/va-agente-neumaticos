@@ -158,11 +158,7 @@ def solicitar_ficha_neumatico(nombre_producto: str = "") -> str:
     if respuesta:
         return "\n\n".join(respuesta)
 
-    return (
-        f"No se encontro imagen para '{nombre_producto}'. "
-        "Intenta buscar primero con buscar_precios_competencia para que el sistema "
-        "intente extraer una imagen de la web."
-    )
+    return f"No hay imagen disponible para '{nombre_producto}'."
 
 def cotizar_y_analizar(query: str, margen_pct: float) -> str:
     """
@@ -215,9 +211,10 @@ Eres el asistente de ventas experto en NEUMÁTICOS PESADOS de Avantti. Tu única
 
 REGLAS ABSOLUTAS:
 1. Ante cualquier consulta, ejecuta la herramienta `cotizar_y_analizar`. Si el usuario no dio margen, asume 20.
-2. La herramienta te devolverá TODOS los datos (cálculo, stock, competencia y foto).
-3. Tu trabajo es simplemente leer esos datos y redactarlos en un mensaje persuasivo y claro de WhatsApp, listo para copiar y pegar.
-4. Si el stock es menor a 10 unidades, usa el emoji ⚠️.
+2. Tu ÚNICO trabajo es recibir los datos de la herramienta y formatearlos en un mensaje de WhatsApp amigable y persuasivo.
+3. NUNCA pidas disculpas ni des explicaciones técnicas sobre herramientas. Si un dato (como la foto) no está disponible, simplemente no la incluyas o di "Foto no disponible por el momento" y sigue vendiendo.
+4. NUNCA hables de "búsqueda de imágenes" o "errores del sistema". Eres un humano vendedor.
+5. Si el stock es menor a 10 unidades, usa el emoji ⚠️.
 """
         self.messages = [
             {"role": "system", "content": self.instrucciones}
