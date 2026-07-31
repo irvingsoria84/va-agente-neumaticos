@@ -72,78 +72,107 @@ def es_el_mismo_neumatico(query: str, titulo: str) -> bool:
 # ── Scrapers por sitio ────────────────────────────────────────────────────────
 
 async def _scrape_neumachile(page, query: str) -> dict:
-    """Scraper específico para Neumachile que además extrae la imagen."""
+    """Scraper específico para Neumachile (Premium) que además extrae la imagen."""
     import urllib.parse
     nombre_tienda = "Neumachile"
     
-    urls_a_intentar = [
-        f"https://www.neumachile.cl/?s={query.replace(' ', '+')}&post_type=product",
-        f"https://www.neumachile.cl/?s={query.upper().replace('NEUMATICO', '').replace('NEUMÁTICO', '').strip().replace(' ', '+')}&post_type=product"
-    ]
+    url_base = "https://premium.neumachile.cl/"
     
-    urls_intentadas = set()
-    last_url = urls_a_intentar[0]
-    
-    for url in urls_a_intentar:
-        if url in urls_intentadas:
-            continue
-        urls_intentadas.add(url)
-        last_url = url
+    try:
+        await page.goto(url_base, wait_until="domcontentloaded", timeout=TIMEOUT_SCRAPING)
+        await page.wait_for_timeout(2000)
         
-        try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=TIMEOUT_SCRAPING)
-            await page.wait_for_timeout(3000)
-
-            precio_encontrado = None
-            nombre_encontrado = ""
-            imagen_url = ""
-            ficha_tecnica = ""
-
-            product_card = page.locator(".product").first
-            if await product_card.count() > 0:
-                nombre_encontrado = (await product_card.locator(".woocommerce-loop-product__title").text_content() or "").strip()
-                precio_txt = await product_card.locator(".price").text_content() or ""
-                precio_encontrado = _limpiar_precio(precio_txt)
-
-                img_loc = product_card.locator("img").first
+        # Llenar la barra de busqueda
+        search_loc = page.locator("input[placeholder*='buscando' i]").first
+        if await search_loc.count() > 0:
+            # Extraer modelo (token con letras y numeros o de mas de 4 caracteres)
+            tokens = query.split()
+            modelos = [t for t in tokens if any(c.isalpha() for c in t) and any(c.isdigit() for c in t) and len(t) > 3]
+            clean_query = modelos[-1] if modelos else tokens[-1]
+            print(f"Neumachile Scraper buscando: {clean_query}")
+            
+            await search_loc.fill(clean_query)
+            await search_loc.press("Enter")
+            
+            # Wait for search results or a specific timeout
+            try:
+                await page.wait_for_function(f"document.body.innerText.includes('{clean_query}')", timeout=8000)
+            except:
+                pass
+            await page.wait_for_timeout(2000)
+            
+            # Find all potential product cards
+            cards = await page.locator(".single_product, .product_content").all()
+            
+            for product_card in cards:
+                texto_card = await product_card.inner_text()
+                if not texto_card or clean_query not in texto_card:
+                    continue
+                
+                # Extraer nombre (normalmente la primera linea)
+                lineas = [l.strip() for l in texto_card.split('\n') if l.strip()]
+                nombre_encontrado = lineas[0] if lineas else ""
+                
+                # Extraer precio
+                precio_texto = ""
+                for l in lineas:
+                    if "$" in l or "CLP" in l:
+                        precio_texto = l
+                        break
+                precio_encontrado = _limpiar_precio(precio_texto)
+                
+                print(f"Nombre extraido del card: {nombre_encontrado}")
+                print(f"Precio extraido: {precio_encontrado}")
+                
+                # Imagen
+                imagen_url = ""
+                # Si estamos en single_product, la imagen podria estar un nivel arriba, busquemos global o relativa
+                # Mejor buscamos la imagen dentro del contenedor padre
+                parent = product_card.locator("xpath=..").first
+                if await parent.count() > 0:
+                    img_loc = parent.locator("img").first
+                else:
+                    img_loc = product_card.locator("img").first
+                    
                 if await img_loc.count() > 0:
                     try:
-                        # Tomar screenshot del elemento para evitar error 403 (hotlink) al renderizar
                         img_path = str(SESSION_FILE.parent / "last_image.jpg")
                         await img_loc.screenshot(path=img_path)
                         img_path_f = img_path.replace(chr(92), '/')
-                        # URL encode spaces and special characters for Antigravity Markdown rendering
                         imagen_url = urllib.parse.quote(img_path_f, safe=':/')
                     except Exception:
                         pass
-
-                try:
-                    desc_loc = product_card.locator(".woocommerce-product-details__short-description").first
-                    if await desc_loc.count() > 0:
-                        ficha_tecnica = (await desc_loc.text_content() or "").strip()
-                        ficha_tecnica = re.sub(r'\n+', '\n', ficha_tecnica)
-                except Exception:
-                    pass
-
-            if precio_encontrado or nombre_encontrado:
-                # Validacion estricta para evitar agarrar otro neumatico
+                else:
+                    # Alternativa: intentar buscar imagen globalmente
+                    img_loc = page.locator("img[alt*='neumatico' i], img[src*='/products/']").first
+                    if await img_loc.count() > 0:
+                        try:
+                            img_path = str(SESSION_FILE.parent / "last_image.jpg")
+                            await img_loc.screenshot(path=img_path)
+                            img_path_f = img_path.replace(chr(92), '/')
+                            imagen_url = urllib.parse.quote(img_path_f, safe=':/')
+                        except Exception:
+                            pass
+                
+                # Validacion para retornar
                 if es_el_mismo_neumatico(query, nombre_encontrado):
                     return {
                         "tienda": nombre_tienda,
                         "producto": nombre_encontrado,
                         "precio": precio_encontrado,
-                        "precio_fmt": _fp(precio_encontrado) if precio_encontrado else "Requiere Login",
+                        "precio_fmt": _fp(precio_encontrado) if precio_encontrado else "Sin Precio",
                         "estado": "ok" if precio_encontrado else "Sin Precio",
-                        "url": url,
+                        "url": page.url,
                         "imagen_url": imagen_url,
-                        "ficha_tecnica": ficha_tecnica
+                        "ficha_tecnica": "\n".join(lineas[1:]) if len(lineas) > 1 else ""
                     }
-                # Si no es el mismo, continuamos al fallback loop
-        except Exception:
-            pass
+                    
+    except Exception as e:
+        print(f"Error scraping Neumachile: {e}")
+        pass
 
-    # Si todo falla
-    return {"tienda": nombre_tienda, "producto": None, "precio": None, "precio_fmt": "-", "estado": "No encontrado", "url": urls_a_intentar[0]}
+    # Si falla o no lo encuentra
+    return {"tienda": nombre_tienda, "producto": None, "precio": None, "precio_fmt": "-", "estado": "No encontrado", "url": url_base}
 
 
 

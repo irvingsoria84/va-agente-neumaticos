@@ -4,3 +4,5 @@ openpyxl
 playwright
 python-dotenv
 rapidfuzz
+streamlit
+google-generativeai
