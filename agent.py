@@ -199,6 +199,7 @@ def cotizar_y_analizar(query: str, margen_pct: float) -> str:
 # ----------------- Configuracion del Agente -----------------
 
 import json
+import re
 
 class GroqChatSession:
     def __init__(self):
@@ -206,96 +207,100 @@ class GroqChatSession:
         if not api_key:
             raise ValueError("No se encontró la variable de entorno GROQ_API_KEY")
         self.client = Groq(api_key=api_key)
-        self.instrucciones = """
-Eres el asistente de ventas experto en NEUMÁTICOS PESADOS de Avantti. Tu única función es ayudar al dueño de la distribuidora a responder consultas de clientes en WhatsApp con rapidez y precisión.
+        self.historial = []
 
-REGLAS ABSOLUTAS:
-1. OBLIGATORIO: Ante CUALQUIER mensaje del usuario, DEBES ejecutar la herramienta `cotizar_y_analizar`. JAMÁS intentes responder una cotización sin usar la herramienta. Si el usuario no dio margen, asume 20.
-2. Tu ÚNICO trabajo es recibir los datos de la herramienta y formatearlos en un mensaje de WhatsApp amigable y persuasivo. No inventes precios ni datos.
-3. NUNCA pidas disculpas ni des explicaciones técnicas. Si un dato (como la foto) no está disponible, simplemente omítelo o di "Foto no disponible por el momento" y sigue vendiendo.
-4. NUNCA hables de "búsqueda de imágenes" o "errores". Eres un humano vendedor.
-5. Si el stock es menor a 10 unidades, usa el emoji ⚠️.
-"""
-        self.messages = [
-            {"role": "system", "content": self.instrucciones}
-        ]
-        self.tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "cotizar_y_analizar",
-                    "description": "Busca un neumático, calcula el precio final, busca precios de competencia y extrae la foto oficial.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "El modelo o medida del neumático buscado."
-                            },
-                            "margen_pct": {
-                                "type": "number",
-                                "description": "El porcentaje de margen de ganancia (ej. 15 para 15%)."
-                            }
-                        },
-                        "required": ["query", "margen_pct"]
-                    }
-                }
-            }
-        ]
-
-    def send_message(self, prompt: str):
-        self.messages.append({"role": "user", "content": prompt})
-        
+    def _extraer_parametros(self, prompt: str) -> dict:
+        """Usa Llama para extraer query y margen del mensaje del usuario."""
         response = self.client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=self.messages,
-            tools=self.tools,
-            tool_choice="auto",
+            messages=[
+                {"role": "system", "content": (
+                    "Analiza el mensaje del usuario y extrae dos datos:\n"
+                    "1. El modelo, código o medida del neumático (ej: WD2088, 295/80R22.5, etc.)\n"
+                    "2. El porcentaje de margen de ganancia (si lo menciona)\n\n"
+                    "Responde ÚNICAMENTE con JSON puro, sin texto adicional:\n"
+                    '{\"query\": \"MODELO_O_MEDIDA\", \"margen_pct\": 20}\n\n'
+                    "Si no se menciona margen, usa 20.\n"
+                    "Si el mensaje NO es una consulta de neumáticos (es un saludo, agradecimiento, etc.), responde:\n"
+                    '{\"query\": \"\", \"margen_pct\": 0}'
+                )},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0,
+            max_tokens=100,
         )
-        
-        response_message = response.choices[0].message
-        tool_calls = response_message.tool_calls
-        
-        if tool_calls:
-            self.messages.append(response_message)
-            for tool_call in tool_calls:
-                function_name = tool_call.function.name
-                try:
-                    function_args = json.loads(tool_call.function.arguments)
-                except:
-                    function_args = {"query": prompt, "margen_pct": 20}
-                
-                if function_name == "cotizar_y_analizar":
-                    function_response = cotizar_y_analizar(
-                        query=function_args.get("query", prompt),
-                        margen_pct=function_args.get("margen_pct", 20)
-                    )
-                    self.messages.append({
-                        "tool_call_id": tool_call.id,
-                        "role": "tool",
-                        "name": function_name,
-                        "content": function_response,
-                    })
-            
-            second_response = self.client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=self.messages,
-            )
-            final_text = second_response.choices[0].message.content
-            self.messages.append({"role": "assistant", "content": final_text})
-            
-            class DummyResponse:
-                def __init__(self, text):
-                    self.text = text
-            return DummyResponse(final_text)
+        try:
+            text = response.choices[0].message.content.strip()
+            # Limpiar bloques de código markdown si los hay
+            if "```" in text:
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+                text = text.strip()
+            # Extraer JSON del texto
+            match = re.search(r'\{[^}]+\}', text)
+            if match:
+                return json.loads(match.group())
+            return json.loads(text)
+        except Exception:
+            return {"query": prompt, "margen_pct": 20}
+
+    def send_message(self, prompt: str):
+        # Paso 1: Extraer parámetros del mensaje
+        params = self._extraer_parametros(prompt)
+        query = params.get("query", "").strip()
+        margen = params.get("margen_pct", 20)
+
+        # Paso 2: Si es consulta de neumático, ejecutar herramienta DIRECTAMENTE
+        if query:
+            datos_reales = cotizar_y_analizar(query=query, margen_pct=margen)
         else:
-            final_text = response_message.content
-            self.messages.append({"role": "assistant", "content": final_text})
-            class DummyResponse:
-                def __init__(self, text):
-                    self.text = text
-            return DummyResponse(final_text)
+            datos_reales = None
+
+        # Paso 3: Pasar datos a Llama SOLO para formatear
+        system_msg = (
+            "Eres el asistente de ventas de Avantti, experto en neumáticos pesados.\n\n"
+            "REGLAS:\n"
+            "- Usa ÚNICAMENTE los datos que te proporciona el sistema. NUNCA inventes precios, stock ni datos.\n"
+            "- Formatea la respuesta como mensaje de WhatsApp: claro, persuasivo y profesional.\n"
+            "- Si la foto/imagen no está disponible, simplemente no la menciones.\n"
+            "- Si el stock es menor a 10, advierte con ⚠️.\n"
+            "- No des explicaciones técnicas ni pidas disculpas. Eres un vendedor humano.\n"
+            "- Incluye siempre un cierre de venta amigable."
+        )
+
+        if datos_reales:
+            user_content = (
+                f"El cliente preguntó: \"{prompt}\"\n\n"
+                f"DATOS REALES DEL SISTEMA (usa SOLO estos):\n\n{datos_reales}\n\n"
+                "Redacta el mensaje de WhatsApp con estos datos."
+            )
+        else:
+            user_content = (
+                f"El cliente dijo: \"{prompt}\"\n\n"
+                "No es una consulta de neumáticos. Responde de forma amigable y breve como vendedor de Avantti."
+            )
+
+        response = self.client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_msg},
+                *self.historial[-6:],  # Últimos 3 intercambios para contexto
+                {"role": "user", "content": user_content}
+            ],
+            temperature=0.3,
+            max_tokens=1500,
+        )
+
+        final_text = response.choices[0].message.content
+        self.historial.append({"role": "user", "content": prompt})
+        self.historial.append({"role": "assistant", "content": final_text})
+
+        class DummyResponse:
+            def __init__(self, text):
+                self.text = text
+        return DummyResponse(final_text)
 
 def get_chat_session():
-    """Inicializa la sesión de chat con el modelo y herramientas de Groq."""
+    """Inicializa la sesión de chat con Groq."""
     return GroqChatSession()
