@@ -81,6 +81,13 @@ def _cargar_catalogo(forzar: bool = False) -> list[dict]:
             stock_raw = row.get("DISPONIBLE")
             stock_texto = _evaluar_stock(stock_raw)
             
+            # Extraer listas de precios
+            precios_listas = {}
+            for col in ["Lista 10% Iva Incluido ", "Lista 12% Iva Incluido ", "Lista 15% Iva Incluido ", "Lista 20% Iva Incluido ", "Lista 25% Iva Incluido "]:
+                if col in row and not pd.isna(row[col]):
+                    margen = int(col.split("%")[0].split(" ")[1])
+                    precios_listas[margen] = float(row[col])
+
             # Solo agregar si tiene código y descripción
             if codigo and descripcion and codigo != 'nan' and descripcion != 'nan':
                 productos.append({
@@ -88,6 +95,7 @@ def _cargar_catalogo(forzar: bool = False) -> list[dict]:
                     "descripcion": descripcion,
                     "marca": marca,
                     "precio_base": precio,
+                    "precios_listas": precios_listas,
                     "stock": stock_texto,
                     "_normalizado": _normalizar(descripcion) + " " + _normalizar(codigo)
                 })

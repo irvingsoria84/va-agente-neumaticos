@@ -29,9 +29,12 @@ def calcular_cotizacion(
     flete: float = 0.0,
     comision_bancaria_pct: float = 0.0,
     comision_vendedor_pct: float = 0.0,
+    precio_excel: float | None = None,
 ) -> dict:
     """
     Calcula precio de venta, IVA, ganancias y márgenes.
+    Si se proporciona precio_excel (extraído directo de la columna del Excel),
+    se toma como total_venta final y se recalculan las métricas hacia atrás.
     Aplica el descuento de compra (35%) al precio base para obtener el costo real.
     """
     if margen_pct >= 100:
@@ -42,8 +45,12 @@ def calcular_cotizacion(
     # ── Nuevo paso: Cálculo de Costo Real (Descuento 35%) ──
     costo = precio_base * (1.0 - DESCUENTO_COMPRA)
 
-    # Precio de venta
-    precio_sin_iva = costo / (1.0 - margen_pct / 100.0)
+    if precio_excel is not None:
+        total_venta = precio_excel
+        precio_sin_iva = total_venta / (1.0 + IVA)
+    else:
+        precio_sin_iva = costo / (1.0 - margen_pct / 100.0)
+        total_venta = precio_sin_iva * (1.0 + IVA)
 
     # IVA
     iva_costo = costo * IVA
@@ -51,7 +58,6 @@ def calcular_cotizacion(
     iva_neto = iva_venta - iva_costo
 
     total_costo = costo + iva_costo
-    total_venta = precio_sin_iva + iva_venta
 
     # Ganancias
     ganancia_bruta = precio_sin_iva - costo
@@ -100,53 +106,75 @@ def formatear_tabla_cotizacion(
     lineas: list[str] = []
 
     if nombre_producto:
-        lineas.append(f"**{nombre_producto}**")
+        lineas.append(f"### 🏷️ **{nombre_producto}**")
         if marca:
-            lineas.append(f"   Marca: {marca}")
+            lineas.append(f"- 🔖 **Marca:** {marca}")
         if codigo:
-            lineas.append(f"   Código: {codigo}")
+            lineas.append(f"- 🆔 **Codigo:** {codigo}")
         if stock:
-            lineas.append(f"   Stock: {stock}")
+            lineas.append(f"- 📦 **Stock:** {stock}")
         lineas.append("")
 
-    sep = "-" * 46
-
-    lineas.append("**COSTO PROVEEDOR (con 35% dcto.)**")
-    lineas.append(sep)
-    lineas.append(f"  Precio Base Original:      {_fp(calc['precio_base'])}")
-    lineas.append(f"  Costo con Descuento:       {_fp(calc['costo_unitario'])}")
-    lineas.append(f"  IVA crédito fiscal (19%):  {_fp(calc['iva_costo'])}")
-    lineas.append(f"  Total costo c/IVA:         {_fp(calc['total_costo_iva'])}")
+    # Tabla de Costos
+    lineas.append("| 🛒 COSTOS (PROVEEDOR 35% DCTO) | VALOR |")
+    lineas.append("| :--- | :--- |")
+    lineas.append(f"| 🏷️ Precio Base Original | {_fp(calc['precio_base'])} |")
+    lineas.append(f"| 📉 Costo con Descuento | {_fp(calc['costo_unitario'])} |")
+    lineas.append(f"| 📄 IVA credito fiscal (19%) | {_fp(calc['iva_costo'])} |")
+    lineas.append(f"| 💰 **Costo Total c/IVA** | **{_fp(calc['total_costo_iva'])}** |")
     lineas.append("")
 
-    lineas.append(f"**PRECIO DE VENTA SUGERIDO (margen {_fpp(calc['margen_pct'])})**")
-    lineas.append(sep)
-    lineas.append(f"  Precio s/IVA:              {_fp(calc['precio_sin_iva'])}")
-    lineas.append(f"  IVA débito fiscal (19%):   {_fp(calc['iva_venta'])}")
-    lineas.append(f"  TOTAL CON IVA:             {_fp(calc['total_venta_iva'])}")
-    lineas.append(f"  IVA neto a pagar SII:      {_fp(calc['iva_neto_sii'])}")
+    # Tabla de Venta
+    lineas.append(f"| 💵 PRECIO VENTA (MARGEN {_fpp(calc['margen_pct'])}) | VALOR |")
+    lineas.append("| :--- | :--- |")
+    lineas.append(f"| 🏷️ Precio sin IVA | {_fp(calc['precio_sin_iva'])} |")
+    lineas.append(f"| 📄 IVA debito fiscal (19%) | {_fp(calc['iva_venta'])} |")
+    lineas.append(f"| 💰 **TOTAL VENTA c/IVA** | **{_fp(calc['total_venta_iva'])}** |")
+    lineas.append(f"| 🏛️ IVA neto a pagar SII | {_fp(calc['iva_neto_sii'])} |")
     lineas.append("")
 
-    lineas.append("**MÁRGENES Y GANANCIAS**")
-    lineas.append(sep)
-    lineas.append(f"  Ganancia bruta:            {_fp(calc['ganancia_bruta'])}")
+    # Márgenes y Ganancias en lista
+    lineas.append("### 📈 **MARGENES Y GANANCIAS**")
+    lineas.append(f"- 💵 **Ganancia Bruta:** {_fp(calc['ganancia_bruta'])}")
     if calc["flete"] > 0:
-        lineas.append(f"  Flete/despacho:           -{_fp(calc['flete'])}")
+        lineas.append(f"- 🚚 **Flete/despacho:** -{_fp(calc['flete'])}")
     if calc["comision_bancaria"] > 0:
-        lineas.append(f"  Comisión bancaria:        -{_fp(calc['comision_bancaria'])}")
+        lineas.append(f"- 🏦 **Comision bancaria:** -{_fp(calc['comision_bancaria'])}")
     if calc["comision_vendedor"] > 0:
-        lineas.append(f"  Comisión vendedor:        -{_fp(calc['comision_vendedor'])}")
-    lineas.append(f"  Ganancia neta:             {_fp(calc['ganancia_neta'])}")
-    lineas.append(f"  Provisión ISLR (12,5%):   -{_fp(calc['provision_islr'])}")
-    lineas.append(f"  Ganancia final:            {_fp(calc['ganancia_final'])}")
-    lineas.append(f"  % ganancia real s/venta:   {_fpp(calc['pct_ganancia_real'])}")
+        lineas.append(f"- 👔 **Comision vendedor:** -{_fp(calc['comision_vendedor'])}")
+    lineas.append(f"- ⚖️ **Ganancia neta:** {_fp(calc['ganancia_neta'])}")
+    lineas.append(f"- 🏛️ **Provision ISLR (12,5%):** -{_fp(calc['provision_islr'])}")
+    lineas.append(f"- 🏆 **GANANCIA FINAL:** **{_fp(calc['ganancia_final'])}**")
+    lineas.append(f"- 🎯 **% ganancia real s/venta:** **{_fpp(calc['pct_ganancia_real'])}**")
 
     if calc["cantidad"] > 1:
         lineas.append("")
-        lineas.append(f"**TOTALES × {calc['cantidad']} UNIDADES**")
-        lineas.append(sep)
-        lineas.append(f"  Total costo c/dcto:        {_fp(calc['total_costo_cantidad'])}")
-        lineas.append(f"  Total venta c/IVA:         {_fp(calc['total_venta_cantidad'])}")
-        lineas.append(f"  Ganancia total:            {_fp(calc['ganancia_total'])}")
+        lineas.append(f"### 📦 **TOTALES x {calc['cantidad']} UNIDADES**")
+        lineas.append(f"- 🛒 Total costo c/dcto: {_fp(calc['total_costo_cantidad'])}")
+        lineas.append(f"- 💰 Total venta c/IVA: {_fp(calc['total_venta_cantidad'])}")
+        lineas.append(f"- 🏆 Ganancia total: **{_fp(calc['ganancia_total'])}**")
+
+    # Mensaje sugerido para WhatsApp
+    lineas.append("")
+    lineas.append("### 💬 **Mensaje para WhatsApp (Copiar y Pegar)**")
+    lineas.append("```text")
+    lineas.append("¡Hola! 👋 Te dejo el valor por el neumático que solicitaste:")
+    lineas.append("")
+    
+    # Detalles para el mensaje
+    detalle_msg = f"*{nombre_producto}*" if nombre_producto else "*Neumático cotizado*"
+        
+    lineas.append(detalle_msg)
+    
+    if calc["cantidad"] > 1:
+        lineas.append(f"Cantidad: {calc['cantidad']} unidades")
+        lineas.append(f"Valor Unitario: {_fp(calc['total_venta_iva'])} (IVA incluido)")
+        lineas.append(f"Valor Total: *{_fp(calc['total_venta_cantidad'])}* (IVA incluido)")
+    else:
+        lineas.append(f"Valor Final: *{_fp(calc['total_venta_iva'])}* (IVA incluido)")
+        
+    lineas.append("")
+    lineas.append("¿Te ayudo a coordinar la entrega? Quedo atento. 🚀")
+    lineas.append("```")
 
     return "\n".join(lineas)

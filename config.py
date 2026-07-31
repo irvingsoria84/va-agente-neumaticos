@@ -32,12 +32,10 @@ STOCK_MINIMO_AVISO = 10        # Umbral para avisar de bajo stock
 
 # ── Sitios de competencia ─────────────────────────────────────────────────────
 COMPETIDORES = {
-    "Neumastore": "https://neumastore.cl",
-    "Neumatruck": "https://neumatruck.cl",
-    "Rosso Store": "https://www.rossostore.cl",
-    "Red Barrera": "https://redbarrera.cl",
-    "Implementos": "https://www.implementos.cl",
-    "Caren": "https://www.caren.cl",
+    "Neumachile": "https://www.neumachile.cl",
+    "Neumatruck": "https://www.neumatruck.cl",
+    "Full Neumaticos": "https://www.fullneumaticos.cl",
+    "Servisantiago": "https://servisantiago.cl",
 }
 
 TIMEOUT_SCRAPING = 20_000  # ms por sitio en Playwright

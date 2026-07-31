@@ -19,7 +19,8 @@ from mcp.server.fastmcp import FastMCP
 import config
 from modules.buscador import buscar_producto as _buscar, info_catalogo
 from modules.calculadora import calcular_cotizacion as _calcular, formatear_tabla_cotizacion
-from modules.competencia import buscar_precios as _buscar_precios, formatear_tabla_competencia
+from modules.competencia import _buscar_precios_async, formatear_tabla_competencia
+from modules.catalogo_imagenes import buscar_imagen_local
 
 mcp = FastMCP(
     name="VA Agente Neumaticos",
@@ -34,7 +35,7 @@ CUÁNDO USAR CADA HERRAMIENTA:
   Usa esto para ver el precio real y stock ANTES de cotizar.
 - calcular_cotizacion: SIEMPRE después de buscar. 
   Recuerda pasarle el "precio_base" que te da buscar_neumatico. La herramienta calculará el costo con 35% de descuento internamente.
-- buscar_precios_competencia: Para comparar precios de mercado (Neumatruck, Neumastore, etc. y Neumachile).
+- buscar_precios_competencia: Para comparar precios de mercado. Busca en 5 competidores fijos: Neumachile, Neumatruck, Full Neumáticos, Servisantiago, y Google Shopping.
 - solicitar_ficha_neumatico: SOLO si el usuario pide explícitamente ver una imagen o la ficha técnica del producto.
 
 REGLAS:
@@ -66,11 +67,14 @@ def _formato_precio(valor: int) -> str:
 
 @mcp.tool()
 def buscar_neumatico(query: str) -> str:
-    """
-    Busca un neumático en la base de stock.
-    Retorna precio base, stock y código.
-    """
+    """Busca un neumatico en el stock local (Excel) y devuelve precio base, stock y codigo."""
     try:
+        # Guardar el query para fallback
+        try:
+            (config.SESSION_FILE.parent / "last_query.txt").write_text(query, encoding="utf-8")
+        except:
+            pass
+
         resultados = _buscar(query)
         if not resultados:
             info = info_catalogo()
@@ -105,11 +109,21 @@ def calcular_cotizacion(
     Calcula precio de venta, costo (aplicando el 35% de descuento) y ganancias.
     """
     try:
+        # Intentar buscar el precio_excel si el margen coincide con alguna columna
+        precio_excel = None
+        if codigo_producto and margen_pct in [10, 12, 15, 20, 25]:
+            resultados = _buscar(codigo_producto)
+            for r in resultados:
+                if r["codigo"] == codigo_producto:
+                    precio_excel = r.get("precios_listas", {}).get(margen_pct)
+                    break
+
         calc = _calcular(
             precio_base=precio_base,
             margen_pct=margen_pct,
             cantidad=cantidad,
             flete=flete,
+            precio_excel=precio_excel,
         )
         tabla = formatear_tabla_cotizacion(
             calc,
@@ -132,40 +146,80 @@ def calcular_cotizacion(
 
 
 @mcp.tool()
-def buscar_precios_competencia(query: str) -> str:
+async def buscar_precios_competencia(query: str) -> str:
     """Busca precios en Neumatruck, Neumastore, Neumachile, etc."""
     try:
-        resultados = _buscar_precios(query)
+        resultados = await _buscar_precios_async(query)
         return formatear_tabla_competencia(resultados, query=query)
     except Exception as e:
         return f"Error: {str(e)}"
 
 
 @mcp.tool()
-def solicitar_ficha_neumatico() -> str:
+def solicitar_ficha_neumatico(nombre_producto: str = "") -> str:
     """
-    Devuelve la URL de la última imagen extraída de neumachile.cl y su ficha técnica resumida.
-    Úsalo SOLO si el usuario pide explícitamente ver una imagen o especificaciones.
+    Devuelve la imagen del neumatico desde el catalogo local de Avantti Solutions.
+    Pasa el nombre completo del producto como argumento (ej: '295/80 R22.5 TRANS MASTER ESL220').
+    Usalo SOLO si el usuario pide explicitamente ver una imagen o especificaciones.
     """
+    import urllib.parse
+    respuesta = []
+
+    # 1. Buscar en el catalogo local primero (siempre disponible, sin internet)
+    if not nombre_producto:
+        try:
+            archivo_query = config.SESSION_FILE.parent / "last_query.txt"
+            if archivo_query.exists():
+                nombre_producto = archivo_query.read_text(encoding="utf-8").strip()
+        except:
+            pass
+            
+    if nombre_producto:
+        ruta_local = buscar_imagen_local(nombre_producto)
+        
+        try:
+            with open(config.SESSION_FILE.parent / "scratch" / "mcp_log.txt", "a", encoding="utf-8") as f:
+                f.write(f"Ruta local encontrada para '{nombre_producto}': {ruta_local}\n")
+        except:
+            pass
+
+        if ruta_local:
+            ruta_fmt = ruta_local.replace("\\", "/")
+            img_url = "file:///" + urllib.parse.quote(ruta_fmt, safe=":/")
+            respuesta.append(
+                f"**Imagen referencial del catalogo Avantti:**\n"
+                f"![Imagen de Neumatico]({img_url})\n"
+                f"*(URL directa: {img_url})*"
+            )
+            return "\n\n".join(respuesta)
+
+    # 2. Fallback: usar la ultima imagen extraida de la web (si existe)
     archivo_img = config.SESSION_FILE.parent / "last_image.txt"
     archivo_ficha = config.SESSION_FILE.parent / "last_ficha.txt"
-    
-    respuesta = []
-    
+
     if archivo_img.exists():
         url = archivo_img.read_text(encoding="utf-8").strip()
         if url:
-            respuesta.append(f"Aquí tienes la imagen referencial obtenida de Neumachile:\n\n![Imagen de Neumático]({url})\n\n*(URL directa: {url})*")
-    
+            img_src = url if url.startswith("http") else f"file:///{url}"
+            respuesta.append(
+                f"Aqui tienes la imagen referencial obtenida de la web:\n\n"
+                f"![Imagen de Neumatico]({img_src})\n"
+                f"*(URL directa: {img_src})*"
+            )
+
     if archivo_ficha.exists():
         ficha = archivo_ficha.read_text(encoding="utf-8").strip()
         if ficha:
             respuesta.append(f"**Especificaciones Tecnicas:**\n{ficha}")
-            
+
     if respuesta:
         return "\n\n".join(respuesta)
-        
-    return "No se extrajo ninguna imagen ni ficha tecnica en la ultima busqueda de competencia. Intenta buscar el precio del neumatico primero en la competencia."
+
+    return (
+        f"No se encontro imagen en el catalogo local para '{nombre_producto}'. "
+        "Intenta buscar primero con buscar_precios_competencia para que el sistema "
+        "intente extraer una imagen de la web."
+    )
 
 
 if __name__ == "__main__":
