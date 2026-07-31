@@ -164,6 +164,42 @@ def solicitar_ficha_neumatico(nombre_producto: str = "") -> str:
         "intente extraer una imagen de la web."
     )
 
+def cotizar_y_analizar(query: str, margen_pct: float) -> str:
+    """
+    CRÍTICO: ÚLTIMA HERRAMIENTA DISPONIBLE. Úsala SIEMPRE que te pidan cotizar o buscar un neumático.
+    Esta función hace todo el trabajo pesado:
+    1. Busca el neumático en el Excel.
+    2. Calcula el precio final con el margen dado.
+    3. Busca los precios de la competencia.
+    4. Extrae la foto oficial.
+    
+    Retorna un texto consolidado con todos los datos. Solo debes tomar ese texto, darle un formato bonito para WhatsApp y entregarlo al usuario.
+    """
+    try:
+        # 1. Buscar
+        resultados = _buscar(query)
+        if not resultados:
+            return f"No se encontró el neumático '{query}' en el sistema."
+            
+        p = resultados[0] # Tomar el mejor resultado
+        precio_base = p['precio_base']
+        codigo = p['codigo']
+        
+        # 2. Calcular
+        precio_excel = p.get("precios_listas", {}).get(margen_pct)
+        calc = _calcular(precio_base, margen_pct, 1, 0.0, precio_excel)
+        tabla_cotizacion = formatear_tabla_cotizacion(calc, p['descripcion'], codigo, p['stock'], p['marca'])
+        
+        # 3. Competencia
+        tabla_competencia = buscar_precios_competencia(query)
+        
+        # 4. Ficha
+        ficha = solicitar_ficha_neumatico(p['descripcion'])
+        
+        return f"DATOS OBTENIDOS EXITOSAMENTE:\n\n{tabla_cotizacion}\n\n{tabla_competencia}\n\n{ficha}"
+    except Exception as e:
+        return f"Error en la automatización: {e}"
+
 # ----------------- Configuracion del Agente -----------------
 
 def get_chat_session():
@@ -177,31 +213,17 @@ def get_chat_session():
     instrucciones = """
 Eres el asistente de ventas experto en NEUMÁTICOS PESADOS de Avantti. Tu única función es ayudar al dueño de la distribuidora a responder consultas de clientes en WhatsApp con rapidez y precisión.
 
-REGLAS ABSOLUTAS — SIN EXCEPCIONES:
-
-1. PROHIBIDO EL PENSAMIENTO EN VOZ ALTA. Tu ÚNICA respuesta visible al usuario es el output FINAL completo.
-2. FLUJO OBLIGATORIO: Ante cualquier consulta de cotización, SIEMPRE ejecuta estas herramientas EN ESTE ORDEN:
-   - Primero: `buscar_neumatico` (obtener precio_base, stock, código)
-   - Segundo: `calcular_cotizacion` (con el precio_base y el margen pedido)
-   - Tercero: `buscar_precios_competencia` (siempre, para contexto de mercado)
-   - Cuarto: `solicitar_ficha_neumatico` (si el usuario pide imagen o ficha)
-   Solo cuando hayas terminado TODOS los pasos anteriores, entrega el resultado final.
-3. FORMATO DE RESPUESTA OBLIGATORIO: El output final SIEMPRE debe incluir:
-   - Nombre completo del neumático (Marca, Código)
-   - Precio final de venta con IVA y cálculos de margen.
-   - Stock disponible (con advertencia ⚠️ si es menor a 10 unidades)
-   - Precios de la competencia encontrados (o indicación de no disponibles)
-   - Imagen del neumático (si la pidieron y se encontró)
-   - Mensaje de WhatsApp listo para copiar y pegar.
-4. NUNCA INVENTES DATOS. Si no se encontró algo, solo di que no está disponible.
-5. PROHIBIDO GENERAR IMÁGENES por tu cuenta. Extrae las imágenes EXCLUSIVAMENTE ejecutando `solicitar_ficha_neumatico`.
+REGLAS ABSOLUTAS:
+1. Ante cualquier consulta, ejecuta la herramienta `cotizar_y_analizar(query, margen_pct)`. Si el usuario no dio margen, asume 20%.
+2. La herramienta te devolverá TODOS los datos (cálculo, stock, competencia y foto).
+3. Tu trabajo es simplemente leer esos datos y redactarlos en un mensaje persuasivo y claro de WhatsApp, listo para copiar y pegar.
+4. Si el stock es menor a 10 unidades, usa el emoji ⚠️.
 """
 
     model = genai.GenerativeModel(
         model_name="gemini-flash-latest",
-        tools=[buscar_neumatico, calcular_cotizacion, buscar_precios_competencia, solicitar_ficha_neumatico],
+        tools=[cotizar_y_analizar],
         system_instruction=instrucciones
     )
     
-    # enable_automatic_function_calling=True hace que Gemini ejecute las funciones localmente y responda solo con el resultado final
     return model.start_chat(enable_automatic_function_calling=True)
