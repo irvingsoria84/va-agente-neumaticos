@@ -12,7 +12,9 @@ env/
 .env
 
 # Archivos de datos generados y sesiones
-data/
+data/*
+!data/catalog_index.json
+!data/catalog_images/
 *.json
 !mcp_settings.json
 last_image.txt
